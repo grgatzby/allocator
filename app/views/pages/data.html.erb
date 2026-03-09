@@ -1,0 +1,129 @@
+<div class="container py-4">
+  <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+    <div>
+      <h1 class="mb-1">Donnees par pays</h1>
+      <p class="text-muted mb-0">Filtrer et visualiser les observations macroeconomiques.</p>
+    </div>
+    <%= link_to "Retour accueil", root_path, class: "btn btn-outline-secondary" %>
+  </div>
+
+  <% if alert.present? %>
+    <div class="alert alert-danger"><%= alert %></div>
+  <% end %>
+
+  <div class="card mb-4">
+    <div class="card-body">
+      <%= form_with url: data_page_path, method: :get, local: true, class: "row g-2 align-items-end" do %>
+        <div class="col-md-5">
+          <label class="form-label">Pays</label>
+          <%= select_tag :country,
+                         options_from_collection_for_select(@countries, :iso3, :name, @selected_country&.iso3),
+                         include_blank: "Selectionner un pays",
+                         class: "form-select" %>
+        </div>
+        <div class="col-md-3">
+          <label class="form-label">Nombre de lignes</label>
+          <%= select_tag :limit,
+                         options_for_select([100, 200, 500, 1000], @limit),
+                         class: "form-select" %>
+        </div>
+        <div class="col-md-4 d-flex gap-2">
+          <%= submit_tag "Appliquer", class: "btn btn-primary" %>
+          <%= link_to "Reinitialiser", data_page_path, class: "btn btn-outline-secondary" %>
+        </div>
+      <% end %>
+    </div>
+  </div>
+
+  <% if @selected_country.present? %>
+    <div class="card mb-4">
+      <div class="card-body">
+        <h2 class="h5 mb-3">Graphique - <%= @selected_country.name %> (<%= @selected_country.iso3 %>)</h2>
+        <% if @chart_datasets.any? %>
+          <canvas id="country-observations-chart" height="120"></canvas>
+        <% else %>
+          <p class="mb-0 text-muted">Aucune serie disponible pour ce pays.</p>
+        <% end %>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-body">
+        <h2 class="h5 mb-3">Observations (<%= @observations.size %>)</h2>
+        <% if @observations.any? %>
+          <div class="table-responsive">
+            <table class="table table-sm align-middle mb-0">
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Pays</th>
+                  <th>Indicateur</th>
+                  <th>Valeur</th>
+                  <th>Unite</th>
+                  <th>Source</th>
+                </tr>
+              </thead>
+              <tbody>
+                <% @observations.each do |obs| %>
+                  <tr>
+                    <td><%= obs.period_date %></td>
+                    <td><%= obs.series.country&.iso3 %></td>
+                    <td><%= obs.series.indicator.code %></td>
+                    <td><%= obs.value %></td>
+                    <td><%= obs.series.indicator.unit %></td>
+                    <td><%= obs.series.data_source.code %></td>
+                  </tr>
+                <% end %>
+              </tbody>
+            </table>
+          </div>
+        <% else %>
+          <p class="mb-0 text-muted">Aucune observation pour ce pays.</p>
+        <% end %>
+      </div>
+    </div>
+  <% else %>
+    <div class="alert alert-info mb-0">Selectionnez un pays pour afficher les donnees.</div>
+  <% end %>
+</div>
+
+<% if @chart_datasets.any? %>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script>
+    (function () {
+      const canvas = document.getElementById("country-observations-chart");
+      if (!canvas || typeof Chart === "undefined") return;
+
+      const labels = <%= raw(json_escape(@chart_labels.to_json)) %>;
+      const datasets = <%= raw(json_escape(@chart_datasets.to_json)) %>;
+
+      if (window.countryObservationsChart) {
+        window.countryObservationsChart.destroy();
+      }
+
+      window.countryObservationsChart = new Chart(canvas, {
+        type: "line",
+        data: { labels, datasets },
+        options: {
+          responsive: true,
+          interaction: { mode: "index", intersect: false },
+          scales: {
+            y: {
+              type: "linear",
+              position: "left",
+              beginAtZero: false,
+              title: { display: true, text: "Macro (% / niveaux)" }
+            },
+            yFx: {
+              type: "linear",
+              position: "right",
+              beginAtZero: false,
+              title: { display: true, text: "FX vs USD" },
+              grid: { drawOnChartArea: false }
+            }
+          }
+        }
+      });
+    })();
+  </script>
+<% end %>

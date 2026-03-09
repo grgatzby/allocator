@@ -1,0 +1,210 @@
+<div class="container py-4">
+  <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+    <div>
+      <h1 class="mb-1">Analyse pays</h1>
+      <p class="text-muted mb-0">Croissance annuelle (x) vs inflation annuelle (y).</p>
+    </div>
+    <div class="d-flex gap-2">
+      <%= link_to "Retour accueil", root_path, class: "btn btn-outline-secondary" %>
+      <%= link_to "Voir donnees", data_page_path, class: "btn btn-outline-secondary" %>
+    </div>
+  </div>
+
+  <% if alert.present? %>
+    <div class="alert alert-danger"><%= alert %></div>
+  <% end %>
+
+  <div class="card mb-4">
+    <div class="card-body">
+      <%= form_with url: analyse_page_path, method: :get, local: true, class: "row g-2 align-items-end" do %>
+        <div class="col-md-8">
+          <label class="form-label">Pays</label>
+          <%= select_tag :country,
+                         options_from_collection_for_select(@countries, :iso3, :name, @selected_country&.iso3),
+                         include_blank: "Selectionner un pays",
+                         class: "form-select" %>
+        </div>
+        <div class="col-md-4 d-flex gap-2">
+          <%= submit_tag "Analyser", class: "btn btn-primary" %>
+          <%= link_to "Reinitialiser", analyse_page_path, class: "btn btn-outline-secondary" %>
+        </div>
+      <% end %>
+    </div>
+  </div>
+
+  <% if @selected_country.present? %>
+    <div class="card mb-4">
+      <div class="card-body">
+        <h2 class="h5 mb-3"><%= @selected_country.name %> (<%= @selected_country.iso3 %>)</h2>
+        <% if @analysis_points.any? %>
+          <canvas id="analysis-scatter-chart" height="140"></canvas>
+        <% else %>
+          <p class="mb-0 text-muted">Pas assez de donnees communes entre croissance et inflation pour ce pays.</p>
+        <% end %>
+      </div>
+    </div>
+
+    <% if @analysis_points.any? %>
+      <div class="card">
+        <div class="card-body">
+          <h2 class="h5 mb-3">Points utilises</h2>
+          <div class="table-responsive">
+            <table class="table table-sm align-middle mb-0">
+              <thead>
+                <tr>
+                  <th>Annee</th>
+                  <th>Croissance annuelle (%)</th>
+                  <th>Inflation annuelle (%)</th>
+                </tr>
+              </thead>
+              <tbody>
+                <% @analysis_points.each do |point| %>
+                  <tr>
+                    <td><%= point[:year] %></td>
+                    <td><%= point[:x] %></td>
+                    <td><%= point[:y] %></td>
+                  </tr>
+                <% end %>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    <% end %>
+  <% else %>
+    <div class="alert alert-info mb-0">Selectionnez un pays pour afficher l'analyse.</div>
+  <% end %>
+</div>
+
+<% if @analysis_points.any? %>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script>
+    (function () {
+      const canvas = document.getElementById("analysis-scatter-chart");
+      if (!canvas || typeof Chart === "undefined") return;
+
+      const points = <%= raw(json_escape(@analysis_points.to_json)) %>;
+      const analysisFrequency = <%= raw(json_escape((@analysis_frequency || "A").to_json)) %>;
+      const labelStep = analysisFrequency === "M" ? 12 : 5;
+      const dataset = points.map((p) => ({ x: p.x, y: p.y, year: p.year, label: p.label }));
+      const pointCount = dataset.length;
+      const pointLabelPlugin = {
+        id: "pointLabelPlugin",
+        afterDatasetsDraw(chart, args, pluginOptions) {
+          const { ctx } = chart;
+          const meta = chart.getDatasetMeta(0);
+          if (!meta || !meta.data) return;
+
+          ctx.save();
+          ctx.font = "11px sans-serif";
+          ctx.fillStyle = "#6c757d";
+
+          meta.data.forEach((pointElement, idx) => {
+            if (idx % pluginOptions.step !== 0) return;
+            const rawPoint = chart.data.datasets[0].data[idx];
+            if (!rawPoint || !rawPoint.label) return;
+            ctx.fillText(rawPoint.label, pointElement.x + 6, pointElement.y - 6);
+          });
+
+          ctx.restore();
+        }
+      };
+      const zeroAxisPlugin = {
+        id: "zeroAxisPlugin",
+        afterDraw(chart) {
+          const { ctx, chartArea, scales } = chart;
+          const xScale = scales.x;
+          const yScale = scales.y;
+          if (!xScale || !yScale) return;
+
+          ctx.save();
+          ctx.strokeStyle = "#495057";
+          ctx.lineWidth = 2;
+
+          if (xScale.min <= 0 && xScale.max >= 0) {
+            const xZero = xScale.getPixelForValue(0);
+            ctx.beginPath();
+            ctx.moveTo(xZero, chartArea.top);
+            ctx.lineTo(xZero, chartArea.bottom);
+            ctx.stroke();
+          }
+
+          if (yScale.min <= 0 && yScale.max >= 0) {
+            const yZero = yScale.getPixelForValue(0);
+            ctx.beginPath();
+            ctx.moveTo(chartArea.left, yZero);
+            ctx.lineTo(chartArea.right, yZero);
+            ctx.stroke();
+          }
+
+          ctx.restore();
+        }
+      };
+
+      if (window.analysisScatterChart) {
+        window.analysisScatterChart.destroy();
+      }
+
+      window.analysisScatterChart = new Chart(canvas, {
+        type: "scatter",
+        plugins: [pointLabelPlugin, zeroAxisPlugin],
+        data: {
+          datasets: [{
+            label: "Croissance vs Inflation",
+            data: dataset,
+            backgroundColor: "#0d6efd",
+            borderColor: "#0d6efd",
+            showLine: true,
+            tension: 0,
+            pointRadius: 4,
+            pointBackgroundColor: function(context) {
+              const idx = context.dataIndex;
+              if (idx < 5) return "#fd7e14";
+              if (idx === pointCount - 1) return "#0d6efd";
+              if (idx >= pointCount - 5) return "#198754";
+              return "#6c757d";
+            },
+            pointBorderColor: function(context) {
+              const idx = context.dataIndex;
+              if (idx < 5) return "#fd7e14";
+              if (idx === pointCount - 1) return "#0d6efd";
+              if (idx >= pointCount - 5) return "#198754";
+              return "#6c757d";
+            },
+            segment: {
+              borderColor: function(context) {
+                const idx = context.p0DataIndex;
+                if (idx < 5) return "#fd7e14";
+                if (idx === pointCount - 2) return "#0d6efd";
+                if (idx >= pointCount - 5) return "#198754";
+                return "#6c757d";
+              }
+            }
+          }]
+        },
+        options: {
+          responsive: true,
+          plugins: {
+            pointLabelPlugin: { step: labelStep },
+            tooltip: {
+              callbacks: {
+                title: function(context) {
+                  const p = context[0] && context[0].raw ? context[0].raw : null;
+                  return p && p.label ? p.label : "";
+                },
+                label: function(context) {
+                  const p = context.raw;
+                  return "GDP: " + p.x + "%, Inflation: " + p.y + "%";
+                }
+              }
+            }
+          },
+          scales: {
+            x: { title: { display: true, text: "Croissance annuelle (%)" } },
+            y: { title: { display: true, text: "Inflation annuelle (%)" } }
+          }
+        }
+      });
+    })();
+  </script>
+<% end %>

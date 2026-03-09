@@ -1,0 +1,11 @@
+world_bank:
+  cadence: monthly
+  task: ingestion:world_bank
+
+imf:
+  cadence: daily
+  task: ingestion:imf
+
+eurostat:
+  cadence: daily
+  task: ingestion:eurostat
