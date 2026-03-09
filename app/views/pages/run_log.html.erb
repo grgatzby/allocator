@@ -1,0 +1,99 @@
+<div class="container py-4">
+  <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+    <div>
+      <h1 class="mb-1">Log ingestion run #<%= @run.id %></h1>
+      <p class="text-muted mb-0">Resume des donnees extraites et manquantes.</p>
+    </div>
+    <div class="d-flex gap-2">
+      <%= link_to "JSON brut", run_log_path(@run, format: :json), class: "btn btn-outline-secondary", target: "_blank", rel: "noopener" %>
+      <%= link_to "Retour accueil", root_path, class: "btn btn-outline-secondary" %>
+    </div>
+  </div>
+
+  <div class="card mb-4">
+    <div class="card-body">
+      <h2 class="h5 mb-3">Run</h2>
+      <div class="row g-2">
+        <div class="col-md-3"><strong>Source:</strong> <%= @run_log.dig("run", "source") %></div>
+        <div class="col-md-3"><strong>Status:</strong> <%= @run_log.dig("run", "status") %></div>
+        <div class="col-md-3"><strong>Rows read:</strong> <%= @run_log.dig("run", "rows_read") %></div>
+        <div class="col-md-3"><strong>Rows written:</strong> <%= @run_log.dig("run", "rows_written") %></div>
+      </div>
+      <% if @run_log.dig("run", "error_message").present? %>
+        <div class="alert alert-danger mt-3 mb-0"><%= @run_log.dig("run", "error_message") %></div>
+      <% end %>
+    </div>
+  </div>
+
+  <div class="card mb-4">
+    <div class="card-body">
+      <h2 class="h5 mb-3">Donnees extraites (<%= @run_log.dig("summary", "extracted_series_count") %>)</h2>
+      <% extracted = @run_log["extracted_data"] || [] %>
+      <% if extracted.any? %>
+        <div class="table-responsive">
+          <table class="table table-sm align-middle mb-0">
+            <thead>
+              <tr>
+                <th>Indicator</th>
+                <th>Country</th>
+                <th>Series key</th>
+                <th>Received</th>
+                <th>Written</th>
+              </tr>
+            </thead>
+            <tbody>
+              <% extracted.each do |row| %>
+                <tr>
+                  <td><%= row["indicator_code"] %></td>
+                  <td><%= row["country_iso3"] || "GLOBAL" %></td>
+                  <td><%= row["source_series_key"] %></td>
+                  <td><%= row["observations_received"] %></td>
+                  <td><%= row["observations_written"] %></td>
+                </tr>
+              <% end %>
+            </tbody>
+          </table>
+        </div>
+      <% else %>
+        <p class="mb-0 text-muted">Aucune donnee extraite.</p>
+      <% end %>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-body">
+      <h2 class="h5 mb-3">Donnees manquantes (<%= @run_log.dig("summary", "missing_series_count") %>)</h2>
+      <% missing = @run_log["missing_data"] || [] %>
+      <% if missing.any? %>
+        <div class="table-responsive">
+          <table class="table table-sm align-middle mb-0">
+            <thead>
+              <tr>
+                <th>Indicator</th>
+                <th>Country</th>
+                <th>Series key</th>
+                <th>Received</th>
+                <th>Written</th>
+                <th>Missing</th>
+              </tr>
+            </thead>
+            <tbody>
+              <% missing.each do |row| %>
+                <tr>
+                  <td><%= row["indicator_code"] %></td>
+                  <td><%= row["country_iso3"] || "GLOBAL" %></td>
+                  <td><%= row["source_series_key"] %></td>
+                  <td><%= row["observations_received"] %></td>
+                  <td><%= row["observations_written"] %></td>
+                  <td><%= row["missing_observations"] %></td>
+                </tr>
+              <% end %>
+            </tbody>
+          </table>
+        </div>
+      <% else %>
+        <p class="mb-0 text-muted">Aucune donnee manquante detectee.</p>
+      <% end %>
+    </div>
+  </div>
+</div>
