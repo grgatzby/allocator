@@ -1,0 +1,131 @@
+<div class="container py-4">
+  <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+    <div>
+      <h1 class="mb-1">Crude Oil Price en grammes d'or</h1>
+      <p class="text-muted mb-0">WTI (USD/bbl) converti en grammes d'or via le prix de l'or (USD/oz).</p>
+    </div>
+    <div class="d-flex gap-2">
+      <%= link_to "Retour accueil", root_path, class: "btn btn-outline-secondary" %>
+      <%= link_to "Voir donnees", data_page_path, class: "btn btn-outline-secondary" %>
+    </div>
+  </div>
+
+  <div class="card mb-4">
+    <div class="card-body">
+      <%= form_with url: oil_gold_page_path, method: :get, local: true, class: "row g-2 align-items-end" do %>
+        <div class="col-md-4">
+          <label class="form-label">Nombre de points</label>
+          <%= select_tag :limit,
+                         options_for_select(
+                           [
+                             ["120", 120],
+                             ["240", 240],
+                             ["600", 600],
+                             ["1000", 1000],
+                             ["3000", 3000],
+                             ["5000", 5000],
+                             ["Maximum", "max"]
+                           ],
+                           params[:limit].presence || @oil_gold_limit || 240
+                         ),
+                         class: "form-select" %>
+        </div>
+        <div class="col-md-8 d-flex gap-2">
+          <%= submit_tag "Appliquer", class: "btn btn-primary" %>
+          <%= link_to "Reinitialiser", oil_gold_page_path, class: "btn btn-outline-secondary" %>
+        </div>
+      <% end %>
+    </div>
+  </div>
+
+  <div class="card mb-4">
+    <div class="card-body">
+      <% if @oil_gold_points.any? %>
+        <canvas id="oil-gold-chart" height="120"></canvas>
+      <% else %>
+        <p class="mb-0 text-muted">Pas de points communs WTI/Or disponibles.</p>
+      <% end %>
+    </div>
+  </div>
+
+  <% if @oil_gold_points.any? %>
+    <div class="card">
+      <div class="card-body">
+        <h2 class="h5 mb-3">Derniers points (<%= @oil_gold_points.size %>)</h2>
+        <div class="table-responsive">
+          <table class="table table-sm align-middle mb-0">
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>WTI (USD/bbl)</th>
+                <th>Or (USD/oz)</th>
+                <th>WTI en grammes d'or (g/bbl)</th>
+              </tr>
+            </thead>
+            <tbody>
+              <% @oil_gold_points.last(50).reverse_each do |point| %>
+                <tr>
+                  <td><%= point[:x] %></td>
+                  <td><%= point[:wti_usd] %></td>
+                  <td><%= point[:gold_usd_oz] %></td>
+                  <td><%= point[:y] %></td>
+                </tr>
+              <% end %>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  <% end %>
+</div>
+
+<% if @oil_gold_points.any? %>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script>
+    (function () {
+      const canvas = document.getElementById("oil-gold-chart");
+      if (!canvas || typeof Chart === "undefined") return;
+
+      const points = <%= raw(json_escape(@oil_gold_points.to_json)) %>;
+      const labels = points.map((p) => p.x);
+      const values = points.map((p) => p.y);
+
+      if (window.oilGoldChart) {
+        window.oilGoldChart.destroy();
+      }
+
+      window.oilGoldChart = new Chart(canvas, {
+        type: "line",
+        data: {
+          labels: labels,
+          datasets: [{
+            label: "WTI en grammes d'or (g/bbl)",
+            data: values,
+            borderColor: "#6f42c1",
+            backgroundColor: "#6f42c1",
+            fill: false,
+            tension: 0.2,
+            spanGaps: true
+          }]
+        },
+        options: {
+          responsive: true,
+          interaction: { mode: "index", intersect: false },
+          plugins: {
+            tooltip: {
+              callbacks: {
+                label: function(context) {
+                  return "g/bbl: " + context.parsed.y;
+                }
+              }
+            }
+          },
+          scales: {
+            x: { title: { display: true, text: "Date" } },
+            y: { title: { display: true, text: "Grammes d'or par baril" } }
+          }
+        }
+      });
+    })();
+  </script>
+<% end %>

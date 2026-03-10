@@ -24,7 +24,18 @@
         <div class="col-md-3">
           <label class="form-label">Nombre de lignes</label>
           <%= select_tag :limit,
-                         options_for_select([100, 200, 500, 1000], @limit),
+                         options_for_select(
+                           [
+                             ["100", 100],
+                             ["200", 200],
+                             ["500", 500],
+                             ["1000", 1000],
+                             ["3000", 3000],
+                             ["5000", 5000],
+                             ["Maximum", "max"]
+                           ],
+                           @limit_selection
+                         ),
                          class: "form-select" %>
         </div>
         <div class="col-md-4 d-flex gap-2">
@@ -67,7 +78,7 @@
                 <% @observations.each do |obs| %>
                   <tr>
                     <td><%= obs.period_date %></td>
-                    <td><%= obs.series.country&.iso3 %></td>
+                    <td><%= obs.series.country&.iso3 || "GLOBAL" %></td>
                     <td><%= obs.series.indicator.code %></td>
                     <td><%= obs.value %></td>
                     <td><%= obs.series.indicator.unit %></td>
@@ -118,7 +129,7 @@
               type: "linear",
               position: "right",
               beginAtZero: false,
-              title: { display: true, text: "FX vs USD" },
+              title: { display: true, text: "FX / commodities (devise locale)" },
               grid: { drawOnChartArea: false }
             }
           }

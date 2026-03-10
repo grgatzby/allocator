@@ -89,7 +89,7 @@ module Ingestion
     def each_payload
       case @data_source.code
       when "world_bank"
-        (world_bank_payloads + world_bank_inflation_payloads + fx_payloads_for(SourceMappings::G20_ISO3, "world_bank")).each { |payload| yield payload }
+        (world_bank_payloads + world_bank_inflation_payloads + world_bank_commodity_payloads + fx_payloads_for(SourceMappings::G20_ISO3, "world_bank")).each { |payload| yield payload }
       when "imf"
         (imf_payloads + imf_inflation_payloads + fx_payloads_for(SourceMappings::G20_ISO3, "imf")).each { |payload| yield payload }
       when "eurostat"
@@ -121,6 +121,16 @@ module Ingestion
         )
         payload.merge(indicator_code: SourceMappings::WORLD_BANK_INFLATION.fetch(:indicator_code))
       end
+    end
+
+    def world_bank_commodity_payloads
+      client = CommodityFallbackClient.new
+      [
+        client.fetch_gold_usd_oz(start_date: next_start_date("world_bank", "fallback:gold_usd_oz:GLOBAL"))
+              .merge(indicator_code: "GOLD_USD_OZ"),
+        client.fetch_wti_usd_bbl(start_date: next_start_date("world_bank", "fallback:wti_usd_bbl:GLOBAL"))
+              .merge(indicator_code: "WTI_USD_BBL")
+      ]
     end
 
     def imf_payloads
