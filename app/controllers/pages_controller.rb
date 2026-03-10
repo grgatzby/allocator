@@ -1,6 +1,7 @@
 class PagesController < ApplicationController
-  skip_before_action :authenticate_user!, only: [ :home, :data, :analyse ]
+  skip_before_action :authenticate_user!, only: [ :home, :data, :analyse, :oil_gold ]
   INGESTION_SOURCES = %w[all world_bank imf eurostat oecd].freeze
+  OUNCE_TO_GRAMS = 31.1034768
 
   def home
     inflation_series = Series.joins(:indicator).where(indicators: { category: "inflation" })
@@ -19,6 +20,7 @@ class PagesController < ApplicationController
     @countries = Country.order(:name)
     @selected_country = Country.find_by(iso3: params[:country].to_s.upcase) if params[:country].present?
     @limit = normalize_limit(params[:limit])
+    @limit_selection = params[:limit].to_s == "max" ? "max" : @limit
 
     if params[:country].present? && @selected_country.nil?
       flash.now[:alert] = "Pays inconnu: #{params[:country]}"
@@ -29,11 +31,14 @@ class PagesController < ApplicationController
     @chart_datasets = []
     return unless @selected_country
 
-    @observations = Observation.includes(series: [ :country, :indicator, :data_source ])
-                               .joins(series: [ :country, :indicator, :data_source ])
-                               .where(series: { country_id: @selected_country.id })
-                               .order(period_date: :desc)
-                               .limit(@limit)
+    observations_scope = Observation.includes(series: [ :country, :indicator, :data_source ])
+                                    .joins(series: [ :indicator, :data_source ])
+                                    .left_outer_joins(series: :country)
+                                    .where(series: { country_id: [ @selected_country.id, nil ] })
+                                    .order(period_date: :desc)
+
+    observations_scope = observations_scope.limit(@limit) if @limit.present?
+    @observations = observations_scope
 
     build_chart_payload(@observations.to_a)
   end
@@ -143,12 +148,59 @@ class PagesController < ApplicationController
     @analysis_frequency = "A"
   end
 
+  def oil_gold
+    @oil_gold_points = []
+    @oil_gold_limit = normalize_oil_gold_limit(params[:limit])
+
+    raw_rows = Observation.joins(series: :indicator)
+                          .where(series: { country_id: nil }, indicators: { code: [ "WTI_USD_BBL", "GOLD_USD_OZ" ] })
+                          .order(:period_date, :ingested_at)
+
+    latest_by_indicator_and_date = {}
+    raw_rows.each do |obs|
+      key = [obs.series.indicator.code, obs.period_date]
+      latest_by_indicator_and_date[key] = obs
+    end
+
+    wti_by_date = {}
+    gold_by_date = {}
+    latest_by_indicator_and_date.each do |(indicator_code, period_date), obs|
+      if indicator_code == "WTI_USD_BBL"
+        wti_by_date[period_date] = obs.value.to_f
+      elsif indicator_code == "GOLD_USD_OZ"
+        gold_by_date[period_date] = obs.value.to_f
+      end
+    end
+
+    common_dates = (wti_by_date.keys & gold_by_date.keys).sort
+    points = common_dates.filter_map do |period_date|
+      wti_usd = wti_by_date[period_date]
+      gold_usd_oz = gold_by_date[period_date]
+      next if wti_usd.nil? || gold_usd_oz.nil? || gold_usd_oz.zero?
+
+      grams = (wti_usd * OUNCE_TO_GRAMS / gold_usd_oz).round(6)
+      { x: period_date.to_s, y: grams, wti_usd: wti_usd.round(6), gold_usd_oz: gold_usd_oz.round(6) }
+    end
+
+    @oil_gold_points = @oil_gold_limit.present? ? points.last(@oil_gold_limit) : points
+  end
+
   private
 
   def normalize_limit(limit_param)
+    return nil if limit_param.to_s == "max"
+
     requested = limit_param.to_i
     requested = 200 if requested <= 0
-    [ requested, 1000 ].min
+    [ requested, 5000 ].min
+  end
+
+  def normalize_oil_gold_limit(limit_param)
+    return nil if limit_param.to_s == "max"
+
+    requested = limit_param.to_i
+    requested = 240 if requested <= 0
+    [ requested, 5000 ].min
   end
 
   def build_chart_payload(observations)
@@ -185,5 +237,62 @@ class PagesController < ApplicationController
         spanGaps: connect_points
       }
     end
+
+    by_indicator = grouped.to_h { |indicator, rows| [indicator[:code], rows] }
+    fx_rows = by_indicator["FX_USD"] || []
+    currency_code = Ingestion::SourceMappings::COUNTRY_CURRENCIES[@selected_country&.iso3] || "LCU"
+
+    derived_series = [
+      {
+        source_indicator_code: "GOLD_USD_OZ",
+        label: "Gold price (#{currency_code}/oz)",
+        color: "#8c6d1f"
+      },
+      {
+        source_indicator_code: "WTI_USD_BBL",
+        label: "WTI price (#{currency_code}/bbl)",
+        color: "#495057"
+      }
+    ]
+
+    derived_series.each do |config|
+      commodity_rows = by_indicator[config.fetch(:source_indicator_code)] || []
+      dataset = build_local_currency_commodity_dataset(
+        label: config.fetch(:label),
+        color: config.fetch(:color),
+        chart_labels: @chart_labels,
+        commodity_rows: commodity_rows,
+        fx_rows: fx_rows
+      )
+      @chart_datasets << dataset if dataset.present?
+    end
+  end
+
+  def build_local_currency_commodity_dataset(label:, color:, chart_labels:, commodity_rows:, fx_rows:)
+    return if commodity_rows.empty? || fx_rows.empty?
+
+    commodity_by_date = commodity_rows.each_with_object({}) { |obs, memo| memo[obs.period_date.to_s] = obs.value.to_f }
+    fx_by_date = fx_rows.each_with_object({}) { |obs, memo| memo[obs.period_date.to_s] = obs.value.to_f }
+    data = chart_labels.map do |date|
+      commodity_usd = commodity_by_date[date]
+      fx_value = fx_by_date[date]
+      next if commodity_usd.nil? || fx_value.nil? || fx_value.zero?
+
+      # FX_USD stores USD per 1 unit of local currency, so convert USD -> local by dividing.
+      (commodity_usd / fx_value).round(6)
+    end
+
+    return if data.compact.empty?
+
+    {
+      label: label,
+      data: data,
+      yAxisID: "yFx",
+      borderColor: color,
+      backgroundColor: color,
+      fill: false,
+      tension: 0.2,
+      spanGaps: true
+    }
   end
 end

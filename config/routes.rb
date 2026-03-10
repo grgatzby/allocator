@@ -3,6 +3,7 @@ Rails.application.routes.draw do
   root to: "pages#home"
   get "data", to: "pages#data", as: :data_page
   get "analyse", to: "pages#analyse", as: :analyse_page
+  get "oil-gold", to: "pages#oil_gold", as: :oil_gold_page
   post "ingestion/:source", to: "pages#run_ingestion", as: :run_ingestion
   get "ingestion_runs/:id/log", to: "pages#run_log", as: :run_log
   delete "ingestion_runs/:id", to: "pages#delete_run", as: :delete_run

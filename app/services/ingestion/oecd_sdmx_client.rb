@@ -3,10 +3,19 @@ require "csv"
 
 module Ingestion
   class OecdSdmxClient
+    OPEN_TIMEOUT = 6
+    READ_TIMEOUT = 6
+    MAX_RETRIES = 0
+
     def initialize(http_client: nil)
       base_url = DataSource.find_by!(code: "oecd").base_url.to_s
       base_url = "#{base_url}/" unless base_url.end_with?("/")
-      @http_client = http_client || HttpClient.new(base_url: base_url)
+      @http_client = http_client || HttpClient.new(
+        base_url: base_url,
+        open_timeout: OPEN_TIMEOUT,
+        read_timeout: READ_TIMEOUT,
+        max_retries: MAX_RETRIES
+      )
     end
 
     def fetch_financial_market_rate(country_iso3:, measure_codes:, source_series_key:, start_date: nil, frequency: "M")
@@ -22,6 +31,9 @@ module Ingestion
         next if observations.empty?
 
         return payload
+      ensure
+        # OECD rate-limits aggressively; add a small delay to reduce HTTP 429 bursts.
+        sleep(0.2)
       end
 
       {
@@ -48,7 +60,7 @@ module Ingestion
         observations: parse_observations(csv, frequency: frequency, measure_code: measure_code)
       }
     rescue StandardError => e
-      return empty_series(source_series_key, country_iso3, frequency) if e.message.include?("HTTP 404")
+      return empty_series(source_series_key, country_iso3, frequency) if e.message.include?("HTTP 404") || e.message.include?("HTTP 429")
 
       raise
     end
